@@ -176,6 +176,17 @@ tests/               compare against DNLP-cvxpy (test-only dependency)
 - Grammar unit tests: a table of expressions with expected DCP and DNLP verdicts, mirroring the DNLP branch's tests.
 - A line-count check (`cloc nanocvxpy`) to keep within budget.
 
+## Inspiration: nanoGPT (and micrograd)
+
+nanoGPT is a close analogue: build a function out of composable pieces, take derivatives, and hand them to an optimizer. Our pieces are atoms, the derivatives come from SparseDiffPy, and the optimizers are Ipopt and Clarabel. Lessons to borrow:
+
+- **Readable over general.** A small file set you can read top to bottom in an afternoon, so every line earns its place. If a feature needs a new abstraction layer, it probably doesn't belong in v1.
+- **Hackable by design.** Adding an atom should be one entry in the atom table, the way nanoGPT changes a model by editing `model.py` rather than registering plugins.
+- **Few dependencies, no framework.** Plain classes and functions: no metaclasses, registries or reduction-chain objects.
+- **Examples as documentation.** Add a small `examples/` folder (LP, QP, SOCP, a nonconvex DNLP problem), each a few lines, that also serves as smoke tests.
+- **micrograd's node model.** Each atom node knows its value and its local derivative rule. Here the "local derivative" lives in SparseDiffPy, but the mental model is the same: an expression tree that is evaluated forward and differentiated.
+- **A size budget treated as a feature.** Track the line count in the README, as nanoGPT advertises its ~300-line model.
+
 ## Step 0: repo setup (done)
 
 - Cloned `Transurgeon/nanoCVXPY` (empty) as `origin`; `SparseDifferentiation/nanoCVXPY` added as `upstream`.
