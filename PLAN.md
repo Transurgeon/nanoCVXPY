@@ -10,9 +10,9 @@ cvxpy is about 45k lines of Python, plus a C++ backend. Most of that is machiner
 - the solver zoo
 - atom logic spread over four places: the atom class, the Dcp2Cone canon, the DNLP smooth canon, and the diff-engine registry
 
-The DNLP branch (`DNLP/cvxpy`, `feat/diffengine-dcp-backend`) already shows that SparseDiffPy can do two jobs:
+cvxpy master (`cvxpy-master/cvxpy`, which pins `sparsediffpy>=0.7,<0.8`) already shows that SparseDiffPy can do two jobs:
 1. Act as the Ipopt oracle: values, sparse Jacobian, and the lower triangle of the Lagrangian Hessian.
-2. Extract the conic data `q, P, A, b` for Clarabel by evaluating at x = 0. See `diffengine_cone_program.py:308`.
+2. Extract the conic data `q, P, A, b` for Clarabel by evaluating at x = 0. See `cvxpy-master/cvxpy/cvxpy/reductions/solvers/nlp_solvers/diff_engine/extractor.py:65` (`DiffEngineExtractor`).
 
 So one converter can serve both paths, and every LinOp, cvxcore and coefficient-extractor layer can go.
 
@@ -57,7 +57,7 @@ The only difference between the grammars is the atom flags:
 | DCP | `(spec.convex, spec.concave)` | |
 | DNLP | `(spec.convex or spec.smooth, spec.concave or spec.smooth)` | "Both true" now means smooth, not affine |
 
-This reproduces `is_linearizable_convex`/`is_linearizable_concave` from DNLP `atom.py:267-284` exactly. The problem-level checks are shared too:
+This reproduces `is_linearizable_convex`/`is_linearizable_concave` from `cvxpy-master/cvxpy/cvxpy/atoms/atom.py:268-300` exactly. The problem-level checks are shared too:
 - `Minimize` needs cvx, `Maximize` needs ccv.
 - `==` needs both.
 - `<=` needs cvx of `lhs - rhs`.
@@ -93,10 +93,10 @@ Many canons serve both modes. The epigraphs for `abs`, `max`, `norm1` and `norm_
 - A variable becomes `make_variable(d1, d2, offset, n)`.
 - A constant, or a constant subtree folded by an engine forward pass, becomes `make_parameter(..., -1, vals)`.
 - Every other atom calls `spec.lower(*children)`.
-- Matmul and multiply pick dense or sparse constant forms, following `helpers.py` in DNLP.
+- Matmul and multiply pick dense or sparse constant forms, following `diff_engine/helpers.py` in cvxpy master.
 - The converter checks shapes in Python, because the engine uses `assert`/`exit(1)`.
 
-Both solver paths call it. The patterns to port are DNLP `diff_engine/converters.py`, `registry.py` and `helpers.py`.
+Both solver paths call it. The patterns to port are cvxpy master's `diff_engine/converters.py`, `registry.py` and `helpers.py`.
 
 ### 4. DNLP path (default) → Ipopt
 
@@ -107,7 +107,7 @@ Both solver paths call it. The patterns to port are DNLP `diff_engine/converters
    - `<=` becomes `g = lhs - rhs` with `cl = -inf`, `cu = 0`.
    - Variable bounds become Ipopt `lb`/`ub`.
 4. Build one capsule with `make_problem(obj, cons)`. A ~60-line `Oracles` class handles caching: it tracks the last x and re-runs forward when it changes.
-5. Initial point: the user's value, else the midpoint of the bounds, else `lb+1` or `ub-1`, else 0. Same as DNLP `nlp_solving_chain.py:67`.
+5. Initial point: the user's value, else the midpoint of the bounds, else `lb+1` or `ub-1`, else 0. Same as `cvxpy-master/cvxpy/cvxpy/reductions/solvers/nlp_solving_chain.py:69`.
 6. Unpack x by offsets. `mult_g` slices become the constraint duals.
 
 ### 5. DCP path (`dcp=True`) → Clarabel, with no reordering layer
@@ -156,24 +156,24 @@ nanocvxpy/
   problem.py         Minimize/Maximize/Problem.solve(dcp=False)           ~150
   ipopt.py           oracles + cyipopt call                               ~120
   clarabel.py        data extraction + clarabel call                      ~100
-tests/               compare against DNLP-cvxpy (test-only dependency)
+tests/               compare against cvxpy master (test-only dependency)
 ```
 
 ## Reuse sources
 
 | What | Where |
 |---|---|
-| Converter patterns | `DNLP/cvxpy/reductions/solvers/nlp_solvers/diff_engine/{converters,registry,helpers}.py` |
-| Ipopt oracles and bounds | `DNLP/.../nlp_solvers/nlp_solver.py:80-240`, `ipopt_nlpif.py:121-200` |
-| Conic extraction via the engine | `DNLP/cvxpy/reductions/dcp2cone/diffengine_cone_program.py:308-373` |
-| Smooth canons | `DNLP/cvxpy/reductions/dnlp2smooth/canonicalizers/` |
+| Converter patterns | `cvxpy-master/cvxpy/cvxpy/reductions/solvers/nlp_solvers/diff_engine/{converters,registry,helpers}.py` |
+| Ipopt oracles and bounds | `cvxpy-master/cvxpy/cvxpy/reductions/solvers/nlp_solvers/nlp_solver.py` (`Bounds` :80, `Oracles` :156), `ipopt_nlpif.py` |
+| Conic extraction via the engine | `cvxpy-master/cvxpy/cvxpy/reductions/solvers/nlp_solvers/diff_engine/{extractor,cone_stuffing}.py` |
+| Smooth canons | `cvxpy-master/cvxpy/cvxpy/reductions/dnlp2smooth/canonicalizers/` |
 | Cone canons | `cvxpy/reductions/dcp2cone/canonicalizers/` and `eliminate_pwl/canonicalizers/` |
 | `gm_constrs` | `cvxpy/utilities/power_tools.py` |
 
 ## Verification
 
-- A pytest suite of about 30 small problems: LP, QP, SOCP, exp-cone, and DNLP problems (trig, bilinear, nonsmooth with smoothing). Each one is solved with nanoCVXPY and with DNLP-cvxpy, and the optimal values and solutions must match to 1e-5.
-- Grammar unit tests: a table of expressions with expected DCP and DNLP verdicts, mirroring the DNLP branch's tests.
+- A pytest suite of about 30 small problems: LP, QP, SOCP, exp-cone, and DNLP problems (trig, bilinear, nonsmooth with smoothing). Each one is solved with nanoCVXPY and with cvxpy master (Clarabel for DCP, Ipopt for DNLP), and the optimal values and solutions must match to 1e-5.
+- Grammar unit tests: a table of expressions with expected DCP and DNLP verdicts, mirroring cvxpy master's DNLP tests.
 - A line-count check (`cloc nanocvxpy`) to keep within budget.
 
 ## Inspiration: nanoGPT (and micrograd)
@@ -187,6 +187,98 @@ nanoGPT is a close analogue: build a function out of composable pieces, take der
 - **micrograd's node model.** Each atom node knows its value and its local derivative rule. Here the "local derivative" lives in SparseDiffPy, but the mental model is the same: an expression tree that is evaluated forward and differentiated.
 - **A size budget treated as a feature.** Track the line count in the README, as nanoGPT advertises its ~300-line model.
 
+## Before we code
+
+Risks, decisions and setup to settle before implementation. Tags: **Risk** could break the design, **Decision** is a choice we made, **Hygiene** is project setup.
+
+### 1. SparseDiffPy sharp edges (Risk)
+
+These are confirmed from the bindings survey.
+
+#### Crash-type errors
+Shape mismatches hit `assert` (compiled out in Release builds) or `exit(1)`. Either way the Python process dies with no exception. Examples: `make_add` with unequal shapes, `make_broadcast` with a bad shape, and `make_matmul` with a dimension mismatch.
+
+- Rule: **every engine call goes through `lower.py`**, which validates shapes first.
+- `lower.py` also does broadcasting explicitly with `make_broadcast`/`make_promote`. The engine never sees mismatched shapes.
+
+#### Atom restrictions to route around in `lower.py`
+- **`make_quad_form`** needs a vector **leaf** argument; a compound argument segfaults. Lower `quad_form(Ax+b, P)` either as `sum_squares(L(Ax+b))` (with L the Cholesky factor, which needs constant P), or by adding an auxiliary variable.
+- **`make_quad_over_lin(x, y)`** requires `y` to be a variable expression. With a constant `y`, lower it as `sum(power(x, 2)) / y`.
+- **There is no `sum_squares` primitive.** Lower it as `sum(power(x, 2))`. This also gives an exact Hessian for Clarabel's `P`.
+- **`make_sum` always returns a row vector** `(1, k)`, so reshape it to match our shape semantics.
+- **Constant dense matrices for matmul are row-major**, but everything else is column-major. Put this in one helper.
+
+#### Version drift
+The `python3.11` environment has an *editable* SparseDiffPy whose metadata says 0.5.0, while the source tree is at 0.7.0, so the compiled extension may be stale. Rebuild it before starting, then pin `sparsediffpy>=0.7,<0.8`.
+
+### 2. `.value` via an engine forward pass (Decision)
+
+The atoms the engine lacks (abs, max, norms, …) can sit **anywhere** in a tree, for example `exp(abs(x))`. So evaluation has to be recursive:
+1. A maximal engine-supported subtree is lowered and run forward.
+2. A nonsmooth node applies its NumPy `numeric` to its children's values.
+3. The result is fed upward as a constant.
+
+Building a capsule for every `.value` call is slow, so values are computed **once after a solve** by a single batched forward pass over all expressions that need them. Constant folding at lowering time uses the same routine.
+
+### 3. Shape semantics for 1-D (decided)
+
+cvxpy follows NumPy: `x` of shape `(n,)` gives `x @ x` as a scalar, `A @ x` as `(m,)`, and `x.T` as a no-op. The engine is 2-D only.
+
+- **Python-side shapes follow NumPy exactly**, limited to 0-D, 1-D and 2-D.
+- `lower.py` maps `()` to `(1,1)` and `(n,)` to **`(1,n)` (a row vector)**. This matches cvxpy's `normalize_shape` and the engine's `make_sum` output, so the converter ports with fewer changes.
+- The flat layout is identical either way. The cost is that `A @ x` with a 1-D `x` has to be lowered as `(x @ A.T)`, i.e. `right_matmul` with `A.T`, or by transposing. That rule lives in one place.
+- All shape logic lives in one ~40-line `shapes.py` helper.
+
+### 4. Sign conventions for duals and statuses (Decision)
+
+Match cvxpy exactly so cvxpy can be the test oracle:
+
+- **Duals:** `<=` duals are nonnegative and `==` duals are free.
+  - Ipopt's `mult_g` sign convention depends on how `cl`/`cu` are set. Pick one and flip signs in one place.
+  - Clarabel's `z` for NonNeg is ≥ 0 under `Ax + s = b`. Check it against cvxpy on a small LP.
+- **Statuses:** use the strings `optimal`, `optimal_inaccurate`, `infeasible`, `unbounded`, `infeasible_inaccurate` and `solver_error`. Map them from Ipopt's and Clarabel's own status codes, using `STATUS_MAP` in cvxpy master `ipopt_nlpif.py` and `clarabel_conif.py` as references.
+- **`Maximize`:** negate the objective internally, and negate the reported value and duals back.
+
+### 5. Test oracle and environment (Risk + Decision)
+
+- **Oracle (decided): cvxpy master.** `~/Documents/cvxpy-master/cvxpy` is at `d80b08069` (2026-11-01). It pins `sparsediffpy >= 0.7.0, < 0.8.0` and already contains the DNLP path: `reductions/dnlp2smooth/` and `reductions/solvers/nlp_solvers/{ipopt_nlpif,nlp_solver}.py`, plus `diff_engine/{converters,registry,helpers,c_problem,extractor,cone_stuffing}.py`.
+  - It installs editable into the same `.venv` as a **test-only** dependency.
+  - Both DCP tests (cvxpy + Clarabel) and DNLP tests (cvxpy + Ipopt) compare live against it, so no stored references are needed.
+  - The DNLP repo (pinned `<0.3`) is no longer needed.
+- **Environment (decided):** a project `.venv` managed by `uv`, with Python 3.11. SparseDiffPy needs ≥3.11, and cyipopt 1.6.1, Clarabel 0.11.1 and Homebrew Ipopt 3.14.19 already work on 3.11 here. SparseDiffPy installs editable from `../SparseDiffPy`, and cvxpy editable from `../cvxpy-master/cvxpy`.
+
+**Reuse sources now point to cvxpy master** (see the Reuse sources table). In particular, `diff_engine/extractor.py` and `cone_stuffing.py` are the up-to-date version of the conic extraction we plan to simplify.
+
+### 6. Small but easy to get wrong (Risk)
+
+- **Expression identity:** variables and parameters need stable ids for x/θ offsets. Use an `itertools.count()` id per leaf.
+- **Memoization:** nodes are immutable after construction, so memoize curvature, sign and shape on the node.
+- **Recursion depth:** `sum([... 10k terms])` builds deep trees. Flatten n-ary `add` at construction time, as cvxpy's `AddExpression` does.
+- **Problem cache invalidation:** rebuild if the problem structure changes. If only parameter values change, call `problem_update_params` and re-evaluate the data.
+- **Smoothing initial points:** auxiliary variables get `.value` from their argument's value. That needs a primal point, so smooth *after* `x0` is set.
+- **Zero-size and empty cases:** a problem with no constraints, or a constant objective (feasibility problem). Ipopt with m = 0 and Clarabel with no cones both need explicit handling.
+
+### 7. Project hygiene (Hygiene)
+
+- **License (decided):** Apache-2.0, matching cvxpy, because canons are ported from it. Keep attribution headers in the ported files.
+- **Tooling:**
+  - `pyproject.toml` with hatchling, a Python ≥3.11 floor, and runtime dependencies numpy, scipy, sparsediffpy, cyipopt and clarabel.
+  - `ruff` for linting and pytest for tests.
+  - GitHub Actions CI later, once SparseDiffPy has wheels.
+- **Upstream:** `SparseDifferentiation/nanoCVXPY` isn't reachable yet. Push once it exists.
+
+### 8. Build order (nanoGPT-style vertical slices)
+
+Each slice ends green before the next starts:
+
+1. **Skeleton.** `Variable`, `Constant`, `add`/`neg`/`matmul`/`sum`, `Minimize`, and an Ipopt solve of a tiny LP-as-NLP.
+2. **Grammar.** The `curvature()` rule, the DCP and DNLP checks, and the grammar test table.
+3. **DNLP smooth atoms.** exp, log, power, trig, multiply/matmul of two expressions, and the remaining affine atoms.
+4. **Clarabel path.** LP and QP via `P` and the cone list in creation order, plus duals.
+5. **Cones.** SOC atoms (norm2, quad_over_lin, sqrt, inv_pos), then exp-cone atoms.
+6. **Nonsmooth epigraphs.** These are shared by both paths, plus `.value` evaluation for nonsmooth atoms.
+7. **Remaining features.** Parameters and the re-solve cache, `best_of`, and the examples and README line count.
+
 ## Step 0: repo setup (done)
 
 - Cloned `Transurgeon/nanoCVXPY` (empty) as `origin`; `SparseDifferentiation/nanoCVXPY` added as `upstream`.
@@ -197,7 +289,7 @@ nanoGPT is a close analogue: build a function out of composable pieces, take der
 |---|---|
 | Parameters | Yes, with no DPP. Parameters are engine leaves updated with `problem_update_params`, and the compiled capsule plus Clarabel/Ipopt data are cached on the Problem. Canons that depend on values, such as the `quad_form` eigendecomposition in a DCP constraint, raise an error if given a parameter. For the DCP check, parameters count as constants with sign attributes. |
 | Duals | Yes. Each user constraint records its row slice in Ipopt's `mult_g` or Clarabel's `z`. |
-| API | Drop-in for the basics: same names as cvxpy (`Variable`, `Parameter`, `Problem`, `Minimize`, `Maximize`, `sum_squares`, `norm1`, …). This lets DNLP-cvxpy act as the test oracle. |
+| API | Drop-in for the basics: same names as cvxpy (`Variable`, `Parameter`, `Problem`, `Minimize`, `Maximize`, `sum_squares`, `norm1`, …). This lets cvxpy master act as the test oracle. |
 | Power | In DCP mode, only p in {1, 2, 0.5, -1}, giving `square`, `sqrt` and `inv_pos` via a single SOC each. Any p is allowed in DNLP mode. Do not port `gm_constrs`. |
 | Values | `.value` and constant folding use a SparseDiffPy forward pass: lower the (sub)expression, then run forward at the current variable and parameter values. Atoms carry no NumPy code, except nonsmooth atoms the engine lacks (abs, max, min, maximum, minimum, norm1, norm_inf, norm2, huber, pos, neg). Those get a one-line `numeric` fallback that is used only for `.value`. |
 | DCP check | `solve(dcp=True)` on a non-DCP problem raises `DCPError`. There is no fallback. |
